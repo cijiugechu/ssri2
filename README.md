@@ -1,4 +1,7 @@
-# ssri2
+# `ssri2`
+
+[![Cargo](https://img.shields.io/crates/v/ssri2.svg)](https://crates.io/crates/ssri2)
+[![Documentation](https://docs.rs/ssri2/badge.svg)](https://docs.rs/ssri2)
 
 [`ssri2`](https://github.com/cijiugechu/ssri2), short for Standard Subresource
 Integrity, is a Rust library for parsing, manipulating, serializing,
