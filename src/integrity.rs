@@ -204,7 +204,7 @@ impl Integrity {
     /// assert_eq!(hex, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824".to_owned());
     /// ```
     pub fn to_hex(&self) -> (Algorithm, String) {
-        let hash = self.hashes.get(0).unwrap();
+        let hash = self.hashes.first().unwrap();
         (
             hash.algorithm,
             hex::encode(
