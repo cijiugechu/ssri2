@@ -23,7 +23,7 @@ for shorthand versions of [`IntegrityOpts`](struct.IntegrityOpts.html) and
 # Example
 
 ```
-# use ssri::Integrity;
+# use ssri2::Integrity;
 let source = "sha256-uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek=";
 
 let parsed: Integrity = source.parse().unwrap();
@@ -56,7 +56,7 @@ impl std::str::FromStr for Integrity {
     ///
     /// # Example
     /// ```
-    /// use ssri::Integrity;
+    /// use ssri2::Integrity;
     /// let sri: Integrity = "sha256-deadbeef".parse().unwrap();
     /// assert_eq!(sri.to_string(), String::from("sha256-deadbeef"));
     /// ```
@@ -112,7 +112,7 @@ impl Integrity {
     ///
     /// # Example
     /// ```
-    /// use ssri::{Integrity, Algorithm};
+    /// use ssri2::{Integrity, Algorithm};
     ///
     /// let sri: Integrity = "sha1-deadbeef sha256-badc0ffee".parse().unwrap();
     /// let algorithm = sri.pick_algorithm();
@@ -127,7 +127,7 @@ impl Integrity {
     ///
     /// # Example
     /// ```
-    /// use ssri::Integrity;
+    /// use ssri2::Integrity;
     /// let sri = Integrity::from(b"hello");
     /// assert_eq!(sri.to_string(), "sha256-LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=".to_owned());
     /// ```
@@ -142,7 +142,7 @@ impl Integrity {
     ///
     /// # Example
     ///```
-    /// use ssri::{Integrity, Algorithm};
+    /// use ssri2::{Integrity, Algorithm};
     ///
     /// let expected = Integrity::from(b"hello");
     /// let hex = String::from("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
@@ -161,7 +161,7 @@ impl Integrity {
     ///
     /// # Example
     /// ```
-    /// use ssri::Integrity;
+    /// use ssri2::Integrity;
     /// let sri1: Integrity = "sha256-deadbeef".parse().unwrap();
     /// let sri2: Integrity = "sha256-badc0ffee".parse().unwrap();
     /// let sri3 = sri1.concat(sri2);
@@ -179,7 +179,7 @@ impl Integrity {
     ///
     /// # Example
     /// ```
-    /// use ssri::{Algorithm, Integrity};
+    /// use ssri2::{Algorithm, Integrity};
     ///
     /// let sri = Integrity::from(b"hello");
     /// let algorithm = sri.check(b"hello").unwrap();
@@ -196,7 +196,7 @@ impl Integrity {
     ///
     /// # Example
     /// ```
-    /// use ssri::{Algorithm, Integrity};
+    /// use ssri2::{Algorithm, Integrity};
     ///
     /// let sri = Integrity::from(b"hello");
     /// let (algo, hex) = sri.to_hex();
@@ -220,7 +220,7 @@ impl Integrity {
     ///
     /// # Example
     /// ```
-    /// use ssri::{Algorithm, Integrity};
+    /// use ssri2::{Algorithm, Integrity};
     ///
     /// let sri1 = Integrity::from(b"hello");
     /// let sri2 = Integrity::from(b"hello").concat(Integrity::from(b"world"));

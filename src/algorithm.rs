@@ -21,7 +21,7 @@ pub enum Algorithm {
     /// used to speed up integrity calculations, at the cost of
     /// cryptographically-secure guarantees.
     ///
-    /// `ssri` uses 128-bit xxh3 hashes, which have been shown to have no
+    /// `ssri2` uses 128-bit xxh3 hashes, which have been shown to have no
     /// conflicts even on billions of hashes.
     Xxh3,
 }

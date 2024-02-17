@@ -9,7 +9,7 @@ Check data against an [`Integrity`](struct.Integrity.html).
 # Examples
 
 ```
-# use ssri::{Algorithm, Integrity, IntegrityChecker};
+# use ssri2::{Algorithm, Integrity, IntegrityChecker};
 let data = b"hello world";
 let sri = Integrity::from(&data);
 let checker = IntegrityChecker::new(sri).chain(&data);

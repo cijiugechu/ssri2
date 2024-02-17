@@ -37,7 +37,7 @@ Builds a new [`Integrity`](struct.Integrity.html), allowing multiple algorithms 
 # Examples
 
 ```
-use ssri::{Algorithm, IntegrityOpts};
+use ssri2::{Algorithm, IntegrityOpts};
 let contents = b"hello world";
 let sri = IntegrityOpts::new()
     .algorithm(Algorithm::Sha512)
