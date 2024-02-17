@@ -24,5 +24,10 @@ xxhash-rust = { version = "0.8.6", features = ["xxh3"] }
 default = ["serde"]
 
 [dev-dependencies]
+criterion = {  version = "0.5.1", features = ["html_reports"] }
 serde_derive = "1.0.152"
 serde_json = "1.0.93"
+
+[[bench]]
+name = "integrity"
+harness = false
