@@ -17,23 +17,20 @@ assert_eq!(parsed.to_string(), source)
 
 Generating a new hash from file data:
 ```
-# use ssri2::Integrity;
-// By default, generates Integrity as Sha256.
-// Use IntegrityOpts to pick the algorithm yourself.
-let sri = Integrity::from(b"hello world");
+# use ssri2::{Algorithm, Integrity};
+let sri = Integrity::digest(b"hello world", Algorithm::Sha256);
 assert_eq!(sri.to_string(), "sha256-uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek=");
 ```
 
 Verifying data against an SRI:
 ```
 # use ssri2::{Integrity, Algorithm};
-let sri = Integrity::from(b"hello world");
-assert_eq!(sri.check(b"hello world").unwrap(), Algorithm::Sha256);
+let sri = Integrity::digest(b"hello world", Algorithm::Sha256);
+assert_eq!(sri.verify(b"hello world").unwrap().algorithm, Algorithm::Sha256);
 ```
 
-You can also use [`IntegrityOpts`](struct.IntegrityOpts.html) and [`IntegrityChecker`](struct.IntegrityChecker.html) to generate
-and check subresource integrity, respectively. These allow things like multiple algorithms, and
-incremental/streamed data input.
+Use [`IntegrityBuilder`](struct.IntegrityBuilder.html) and [`Checker`](struct.Checker.html)
+for multiple algorithms and incremental/streamed data input.
 */
 
 mod algorithm;
@@ -44,8 +41,7 @@ mod integrity;
 mod opts;
 
 pub use algorithm::Algorithm::{self, *};
-pub use checker::IntegrityChecker;
+pub use checker::{Checker, Verification};
 pub use errors::Error;
-pub use hash::Hash;
-pub use integrity::Integrity;
-pub use opts::IntegrityOpts;
+pub use integrity::{DigestRef, Integrity};
+pub use opts::IntegrityBuilder;

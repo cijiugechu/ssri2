@@ -1,154 +1,186 @@
-use std::fmt::Debug;
+use std::fmt;
 
 use crate::algorithm::Algorithm;
+use crate::errors::Error;
 use crate::hash::Hash;
 use crate::integrity::Integrity;
 
-use digest::Digest;
-
-#[allow(clippy::enum_variant_names)]
-#[non_exhaustive]
-#[derive(Clone)]
-enum Hasher {
-    Sha1(sha1::Sha1),
-    Sha256(sha2::Sha256),
-    Sha384(sha2::Sha384),
-    Sha512(sha2::Sha512),
-    Xxh3(Box<xxhash_rust::xxh3::Xxh3>),
-}
-
-impl Debug for Hasher {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Sha1(arg0) => f.debug_tuple("Sha1").field(arg0).finish(),
-            Self::Sha256(arg0) => f.debug_tuple("Sha256").field(arg0).finish(),
-            Self::Sha384(arg0) => f.debug_tuple("Sha384").field(arg0).finish(),
-            Self::Sha512(arg0) => f.debug_tuple("Sha512").field(arg0).finish(),
-            Self::Xxh3(_arg0) => f.debug_tuple("Xxh3").finish(),
-        }
-    }
-}
+use digest::Digest as DigestTrait;
 
 /**
-Builds a new [`Integrity`](struct.Integrity.html), allowing multiple algorithms and incremental input.
+Builds a new [`Integrity`] with one or more algorithms and incremental input.
 
 # Examples
 
 ```
-use ssri2::{Algorithm, IntegrityOpts};
-let contents = b"hello world";
-let sri = IntegrityOpts::new()
-    .algorithm(Algorithm::Sha512)
-    .algorithm(Algorithm::Sha1)
-    .chain(&contents)
-    .result();
-```
+use ssri2::{Algorithm, IntegrityBuilder};
 
+let sri = IntegrityBuilder::new()
+    .algorithm(Algorithm::Sha512)
+    .algorithm(Algorithm::Sha256)
+    .chain(b"hello world")
+    .finish()
+    .unwrap();
+
+assert_eq!(sri.strongest_algorithm(), Algorithm::Sha512);
+```
 */
-#[derive(Clone, Debug, Default)]
-pub struct IntegrityOpts {
-    hashers: Vec<Hasher>,
+#[derive(Clone, Default)]
+pub struct IntegrityBuilder {
+    sha1: Option<sha1::Sha1>,
+    sha256: Option<sha2::Sha256>,
+    sha384: Option<sha2::Sha384>,
+    sha512: Option<sha2::Sha512>,
+    xxh3: Option<xxhash_rust::xxh3::Xxh3>,
     disturbed: bool,
 }
 
-impl IntegrityOpts {
-    /// Creates a new hashing IntegrityOpts.
-    pub fn new() -> IntegrityOpts {
-        IntegrityOpts {
-            hashers: vec![],
-            disturbed: false,
-        }
+impl fmt::Debug for IntegrityBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("IntegrityBuilder")
+            .field("sha1", &self.sha1.is_some())
+            .field("sha256", &self.sha256.is_some())
+            .field("sha384", &self.sha384.is_some())
+            .field("sha512", &self.sha512.is_some())
+            .field("xxh3", &self.xxh3.is_some())
+            .field("disturbed", &self.disturbed)
+            .finish()
+    }
+}
+
+impl IntegrityBuilder {
+    /// Create an empty integrity builder.
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    /// Generate a hash for this algorithm. Can be called multiple times to generate an `Integrity` string with multiple entries.
-    pub fn algorithm(mut self, algo: Algorithm) -> Self {
+    /// Enable an algorithm.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called after input has already been added.
+    pub fn algorithm(mut self, algorithm: Algorithm) -> Self {
         if self.disturbed {
-            panic!("Can't add new algorithms if IntegrityOpts::input() has already been called");
+            panic!("cannot add new algorithms after input has been added");
         }
-        self.hashers.push(match algo {
-            Algorithm::Sha1 => Hasher::Sha1(sha1::Sha1::new()),
-            Algorithm::Sha256 => Hasher::Sha256(sha2::Sha256::new()),
-            Algorithm::Sha384 => Hasher::Sha384(sha2::Sha384::new()),
-            Algorithm::Sha512 => Hasher::Sha512(sha2::Sha512::new()),
-            Algorithm::Xxh3 => Hasher::Xxh3(Box::new(xxhash_rust::xxh3::Xxh3::new())),
-        });
+
+        match algorithm {
+            Algorithm::Sha1 => self.sha1 = Some(sha1::Sha1::new()),
+            Algorithm::Sha256 => self.sha256 = Some(sha2::Sha256::new()),
+            Algorithm::Sha384 => self.sha384 = Some(sha2::Sha384::new()),
+            Algorithm::Sha512 => self.sha512 = Some(sha2::Sha512::new()),
+            Algorithm::Xxh3 => self.xxh3 = Some(xxhash_rust::xxh3::Xxh3::new()),
+        }
+
         self
     }
 
-    /// Add some data to this IntegrityOpts. All internal hashers will be updated for all configured `Algorithm`s.
-    pub fn input<B: AsRef<[u8]>>(&mut self, input: B) {
+    /// Add bytes to all configured hashers.
+    pub fn update<B: AsRef<[u8]>>(&mut self, input: B) {
         let input = input.as_ref();
         self.disturbed = true;
-        for hasher in self.hashers.iter_mut() {
-            match hasher {
-                Hasher::Sha1(h) => digest::Digest::update(h, input),
-                Hasher::Sha256(h) => digest::Digest::update(h, input),
-                Hasher::Sha384(h) => digest::Digest::update(h, input),
-                Hasher::Sha512(h) => digest::Digest::update(h, input),
-                Hasher::Xxh3(h) => h.update(input),
-            }
+
+        if let Some(hasher) = &mut self.sha1 {
+            DigestTrait::update(hasher, input);
+        }
+        if let Some(hasher) = &mut self.sha256 {
+            DigestTrait::update(hasher, input);
+        }
+        if let Some(hasher) = &mut self.sha384 {
+            DigestTrait::update(hasher, input);
+        }
+        if let Some(hasher) = &mut self.sha512 {
+            DigestTrait::update(hasher, input);
+        }
+        if let Some(hasher) = &mut self.xxh3 {
+            hasher.update(input);
         }
     }
 
-    /// Same as `IntegrityOpts::input`, but allows chaining.
+    /// Add bytes to all configured hashers and return `self` for chaining.
     pub fn chain<B: AsRef<[u8]>>(mut self, input: B) -> Self {
-        self.input(&input);
+        self.update(input);
         self
     }
 
-    /// Resets internal state for this IntegrityOpts.
+    /// Reset configured hashers back to their initial state.
     pub fn reset(&mut self) {
-        self.hashers = vec![];
+        if self.sha1.is_some() {
+            self.sha1 = Some(sha1::Sha1::new());
+        }
+        if self.sha256.is_some() {
+            self.sha256 = Some(sha2::Sha256::new());
+        }
+        if self.sha384.is_some() {
+            self.sha384 = Some(sha2::Sha384::new());
+        }
+        if self.sha512.is_some() {
+            self.sha512 = Some(sha2::Sha512::new());
+        }
+        if self.xxh3.is_some() {
+            self.xxh3 = Some(xxhash_rust::xxh3::Xxh3::new());
+        }
         self.disturbed = false;
     }
 
-    /// Generate a new `Integrity` from the inputted data and configured algorithms.
-    pub fn result(self) -> Integrity {
-        let mut hashes = self
-            .hashers
-            .into_iter()
-            .map(|h| match h {
-                Hasher::Sha1(h) => {
-                    Hash::from_algorithm_digest(Algorithm::Sha1, h.finalize()).unwrap()
-                }
-                Hasher::Sha256(h) => {
-                    Hash::from_algorithm_digest(Algorithm::Sha256, h.finalize()).unwrap()
-                }
-                Hasher::Sha384(h) => {
-                    Hash::from_algorithm_digest(Algorithm::Sha384, h.finalize()).unwrap()
-                }
-                Hasher::Sha512(h) => {
-                    Hash::from_algorithm_digest(Algorithm::Sha512, h.finalize()).unwrap()
-                }
-                Hasher::Xxh3(h) => {
-                    Hash::from_algorithm_digest(Algorithm::Xxh3, h.digest128().to_be_bytes())
-                        .unwrap()
-                }
-            })
-            .collect::<Vec<Hash>>();
-        hashes.sort();
-        Integrity { hashes }
+    /// Finish hashing and return a compact [`Integrity`] value.
+    pub fn finish(self) -> Result<Integrity, Error> {
+        let mut hashes = Vec::with_capacity(5);
+
+        if let Some(hasher) = self.sha512 {
+            hashes.push(Hash::from_algorithm_digest(
+                Algorithm::Sha512,
+                hasher.finalize(),
+            )?);
+        }
+        if let Some(hasher) = self.sha384 {
+            hashes.push(Hash::from_algorithm_digest(
+                Algorithm::Sha384,
+                hasher.finalize(),
+            )?);
+        }
+        if let Some(hasher) = self.sha256 {
+            hashes.push(Hash::from_algorithm_digest(
+                Algorithm::Sha256,
+                hasher.finalize(),
+            )?);
+        }
+        if let Some(hasher) = self.sha1 {
+            hashes.push(Hash::from_algorithm_digest(
+                Algorithm::Sha1,
+                hasher.finalize(),
+            )?);
+        }
+        if let Some(hasher) = self.xxh3 {
+            hashes.push(Hash::from_algorithm_digest(
+                Algorithm::Xxh3,
+                hasher.digest128().to_be_bytes(),
+            )?);
+        }
+
+        Integrity::from_ordered_hashes(hashes)
     }
 }
 
-impl digest::Update for IntegrityOpts {
+impl digest::Update for IntegrityBuilder {
     fn update(&mut self, data: &[u8]) {
-        self.input(data);
+        IntegrityBuilder::update(self, data);
     }
+
     fn chain(self, input: impl AsRef<[u8]>) -> Self {
-        self.chain(input)
+        IntegrityBuilder::chain(self, input)
     }
 }
 
-impl digest::Reset for IntegrityOpts {
+impl digest::Reset for IntegrityBuilder {
     fn reset(&mut self) {
-        self.reset()
+        IntegrityBuilder::reset(self)
     }
 }
 
-impl std::io::Write for IntegrityOpts {
+impl std::io::Write for IntegrityBuilder {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.input(buf);
+        self.update(buf);
         Ok(buf.len())
     }
 
@@ -160,15 +192,17 @@ impl std::io::Write for IntegrityOpts {
 #[cfg(test)]
 mod tests {
     use super::Algorithm;
-    use super::IntegrityOpts;
+    use super::Error;
+    use super::IntegrityBuilder;
 
     #[test]
     fn basic_test() {
-        let result = IntegrityOpts::new()
+        let result = IntegrityBuilder::new()
             .algorithm(Algorithm::Sha1)
             .algorithm(Algorithm::Sha256)
             .chain(b"hello world")
-            .result();
+            .finish()
+            .unwrap();
         assert_eq!(
             result.to_string(),
             "sha256-uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek= sha1-Kq5sNclPz7QV2+lfQIuc6R7oRu0="
@@ -176,17 +210,23 @@ mod tests {
     }
 
     #[test]
+    fn no_algorithms() {
+        assert_eq!(IntegrityBuilder::new().finish(), Err(Error::NoAlgorithms));
+    }
+
+    #[test]
     fn write_test() {
         use std::io::Write;
-        let mut it = IntegrityOpts::new()
+
+        let mut builder = IntegrityBuilder::new()
             .algorithm(Algorithm::Sha1)
             .algorithm(Algorithm::Sha256);
-        let size = it.write(b"hello ").expect("failed to write bytes");
+        let size = builder.write(b"hello ").expect("failed to write bytes");
         assert_eq!(6, size);
-        let size = it.write(b"world").expect("failed to write bytes");
+        let size = builder.write(b"world").expect("failed to write bytes");
         assert_eq!(5, size);
         assert_eq!(
-            it.result().to_string(),
+            builder.finish().unwrap().to_string(),
             "sha256-uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek= sha1-Kq5sNclPz7QV2+lfQIuc6R7oRu0="
         )
     }

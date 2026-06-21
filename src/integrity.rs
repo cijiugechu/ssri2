@@ -1,10 +1,12 @@
 use std::fmt;
 
 use crate::algorithm::Algorithm;
-use crate::checker::IntegrityChecker;
+use crate::checker::{Checker, Verification};
 use crate::errors::Error;
 use crate::hash::Hash;
-use crate::opts::IntegrityOpts;
+use crate::opts::IntegrityBuilder;
+
+use digest::Digest as DigestTrait;
 
 #[cfg(feature = "serde")]
 use serde::de::{self, Deserialize, Deserializer, Visitor};
@@ -13,10 +15,6 @@ use serde::ser::{Serialize, Serializer};
 
 /**
 Representation of a full [Subresource Integrity string](https://w3c.github.io/webappsec/specs/subresourceintegrity/).
-
-`Integrity` can be used for parsing and also includes convenience methods
-for shorthand versions of [`IntegrityOpts`](struct.IntegrityOpts.html) and
-[`IntegrityChecker`](struct.IntegrityChecker.html).
 
 # Example
 
@@ -30,20 +28,64 @@ assert_eq!(parsed.to_string(), source);
 */
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Integrity {
-    pub hashes: Vec<Hash>,
+    repr: Repr,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum Repr {
+    One(Hash),
+    Many(Box<[Hash]>),
+}
+
+/// Borrowed view of one digest inside an [`Integrity`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct DigestRef<'a> {
+    index: usize,
+    hash: &'a Hash,
+}
+
+impl DigestRef<'_> {
+    /// Return this digest's index in its parent [`Integrity`].
+    pub const fn index(&self) -> usize {
+        self.index
+    }
+
+    /// Return the digest algorithm.
+    pub const fn algorithm(&self) -> Algorithm {
+        self.hash.algorithm()
+    }
+
+    /// Return raw digest bytes.
+    pub fn bytes(&self) -> &[u8] {
+        self.hash.digest_bytes()
+    }
+
+    /// Return the digest encoded as canonical padded standard base64.
+    pub fn to_base64(&self) -> String {
+        self.hash.digest_base64()
+    }
+
+    /// Return the digest encoded as lowercase hex.
+    pub fn to_hex(&self) -> String {
+        hex::encode(self.bytes())
+    }
+}
+
+impl fmt::Display for DigestRef<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.hash.fmt(f)
+    }
 }
 
 impl fmt::Display for Integrity {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.hashes
-                .iter()
-                .map(|h| h.to_string())
-                .collect::<Vec<String>>()
-                .join(" ")
-        )
+        for (i, digest) in self.iter().enumerate() {
+            if i != 0 {
+                f.write_str(" ")?;
+            }
+            digest.fmt(f)?;
+        }
+        Ok(())
     }
 }
 
@@ -51,23 +93,8 @@ impl std::str::FromStr for Integrity {
     type Err = Error;
 
     /// Parses a string into an Integrity instance.
-    ///
-    /// # Example
-    /// ```
-    /// use ssri2::Integrity;
-    /// let sri: Integrity = "sha256-uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek=".parse().unwrap();
-    /// assert_eq!(sri.to_string(), String::from("sha256-uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek="));
-    /// ```
     fn from_str(s: &str) -> Result<Integrity, Self::Err> {
-        let mut hashes = s
-            .split_whitespace()
-            .map(|x| x.parse())
-            .collect::<Result<Vec<Hash>, Self::Err>>()?;
-        if hashes.is_empty() {
-            return Err(Error::EmptyIntegrity);
-        }
-        hashes.sort();
-        Ok(Integrity { hashes })
+        Self::parse(s)
     }
 }
 
@@ -109,146 +136,240 @@ impl<'de> Deserialize<'de> for Integrity {
 }
 
 impl Integrity {
-    /// Pick the most secure available `Algorithm` in this `Integrity`.
-    ///
-    /// # Example
-    /// ```
-    /// use ssri2::{Integrity, Algorithm};
-    ///
-    /// let sri: Integrity = "sha1-Kq5sNclPz7QV2+lfQIuc6R7oRu0= sha256-uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek=".parse().unwrap();
-    /// let algorithm = sri.pick_algorithm();
-    /// assert_eq!(algorithm, Algorithm::Sha256);
-    /// ```
-    pub fn pick_algorithm(&self) -> Algorithm {
-        self.hashes[0].algorithm()
+    pub(crate) fn from_hash(hash: Hash) -> Self {
+        Self {
+            repr: Repr::One(hash),
+        }
     }
 
-    /// Create a new `Integrity` based on `data`. Use
-    /// [`IntegrityOpts`](struct.IntegrityOpts.html) for more options.
-    ///
-    /// # Example
-    /// ```
-    /// use ssri2::Integrity;
-    /// let sri = Integrity::from(b"hello");
-    /// assert_eq!(sri.to_string(), "sha256-LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=".to_owned());
-    /// ```
-    pub fn from<B: AsRef<[u8]>>(data: B) -> Integrity {
-        IntegrityOpts::new()
-            .algorithm(Algorithm::Sha256)
-            .chain(&data)
-            .result()
-    }
+    pub(crate) fn from_hashes(hashes: Vec<Hash>) -> Result<Self, Error> {
+        let mut hashes = match hashes.len() {
+            0 => return Err(Error::NoAlgorithms),
+            1 => {
+                return Ok(Self {
+                    repr: Repr::One(hashes.into_iter().next().expect("length checked")),
+                });
+            }
+            _ => hashes,
+        };
 
-    /// Converts a hex string obtained from `to_hex()` to an `Integrity` with a `Hash` containing algorithm and decoded hex string.
-    ///
-    /// # Example
-    ///```
-    /// use ssri2::{Integrity, Algorithm};
-    ///
-    /// let expected = Integrity::from(b"hello");
-    /// let hex = String::from("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
-    /// assert_eq!(Integrity::from_hex(hex, Algorithm::Sha256).unwrap(), expected);
-    ///```
-    pub fn from_hex<B: AsRef<[u8]>>(hex: B, algorithm: Algorithm) -> Result<Integrity, Error> {
-        let b16 = hex::decode(hex).map_err(|e| Error::HexDecodeError(e.to_string()))?;
-        Ok(Integrity {
-            hashes: vec![Hash::from_algorithm_digest(algorithm, b16)?],
-        })
-    }
-
-    /// Join together two `Integrity` instances. Hashes will be grouped and
-    /// sorted by algorithm but otherwise kept in the same order.
-    ///
-    /// # Example
-    /// ```
-    /// use ssri2::Integrity;
-    /// let sri1 = Integrity::from(b"hello");
-    /// let sri2 = Integrity::from(b"world");
-    /// let sri3 = sri1.concat(sri2);
-    /// assert_eq!(sri3.to_string(), "sha256-LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ= sha256-SG6kYiTRu0+2gPNPfJrZao8k7Ii+c+qOWmxlJg6cuKc=".to_owned());
-    /// ```
-    pub fn concat(&self, other: Integrity) -> Self {
-        let mut hashes = [self.hashes.clone(), other.hashes].concat();
+        let mut hashes = hashes.drain(..).fold(Vec::new(), |mut unique, hash| {
+            if !unique.contains(&hash) {
+                unique.push(hash);
+            }
+            unique
+        });
         hashes.sort();
-        hashes.dedup();
-        Integrity { hashes }
+
+        let repr = if hashes.len() == 1 {
+            Repr::One(hashes.pop().expect("length checked"))
+        } else {
+            Repr::Many(hashes.into_boxed_slice())
+        };
+
+        Ok(Self { repr })
     }
 
-    /// Check some data against this `Integrity`. For more options, use
-    /// [`Checker`](struct.Checker.html).
-    ///
-    /// # Example
-    /// ```
-    /// use ssri2::{Algorithm, Integrity};
-    ///
-    /// let sri = Integrity::from(b"hello");
-    /// let algorithm = sri.check(b"hello").unwrap();
-    /// assert_eq!(algorithm, Algorithm::Sha256);
-    /// ```
-    pub fn check<B: AsRef<[u8]>>(&self, data: B) -> Result<Algorithm, Error> {
-        let mut checker = IntegrityChecker::new(self.clone());
-        checker.input(&data);
-        checker.result()
+    pub(crate) fn from_ordered_hashes(mut hashes: Vec<Hash>) -> Result<Self, Error> {
+        let repr = match hashes.len() {
+            0 => return Err(Error::NoAlgorithms),
+            1 => Repr::One(hashes.pop().expect("length checked")),
+            _ => Repr::Many(hashes.into_boxed_slice()),
+        };
+
+        Ok(Self { repr })
     }
 
-    /// Converts the first `Hash` in this `Integrity` into its hex string
-    /// format.
-    ///
-    /// # Example
-    /// ```
-    /// use ssri2::{Algorithm, Integrity};
-    ///
-    /// let sri = Integrity::from(b"hello");
-    /// let (algo, hex) = sri.to_hex();
-    /// assert_eq!(algo, Algorithm::Sha256);
-    /// assert_eq!(hex, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824".to_owned());
-    /// ```
-    pub fn to_hex(&self) -> (Algorithm, String) {
-        let hash = self.hashes.first().unwrap();
-        (hash.algorithm(), hex::encode(hash.digest_bytes()))
+    /// Parse a strict SRI integrity string.
+    pub fn parse(input: &str) -> Result<Self, Error> {
+        let mut tokens = input.split_whitespace();
+        let Some(first) = tokens.next() else {
+            return Err(Error::EmptyIntegrity);
+        };
+
+        let first = first.parse()?;
+        let Some(second) = tokens.next() else {
+            return Ok(Self {
+                repr: Repr::One(first),
+            });
+        };
+
+        let mut hashes = vec![first, second.parse()?];
+        for token in tokens {
+            hashes.push(token.parse()?);
+        }
+        Self::from_hashes(hashes)
     }
 
-    /// Compares `self` against a given SRI to see if there's a match. The
-    /// deciding algorithm is determined by `other`.
-    ///
-    /// # Example
-    /// ```
-    /// use ssri2::{Algorithm, Integrity};
-    ///
-    /// let sri1 = Integrity::from(b"hello");
-    /// let sri2 = Integrity::from(b"hello").concat(Integrity::from(b"world"));
-    /// let m = sri1.matches(&sri2);
-    /// assert_eq!(m, Some(Algorithm::Sha256));
-    /// ```
-    pub fn matches(&self, other: &Self) -> Option<Algorithm> {
-        let algo = other.pick_algorithm();
-        self.hashes
+    /// Generate a single-digest integrity value.
+    pub fn digest<B: AsRef<[u8]>>(data: B, algorithm: Algorithm) -> Self {
+        let data = data.as_ref();
+        let hash = match algorithm {
+            Algorithm::Sha1 => Hash::from_algorithm_digest(algorithm, sha1::Sha1::digest(data)),
+            Algorithm::Sha256 => Hash::from_algorithm_digest(algorithm, sha2::Sha256::digest(data)),
+            Algorithm::Sha384 => Hash::from_algorithm_digest(algorithm, sha2::Sha384::digest(data)),
+            Algorithm::Sha512 => Hash::from_algorithm_digest(algorithm, sha2::Sha512::digest(data)),
+            Algorithm::Xxh3 => {
+                let mut hasher = xxhash_rust::xxh3::Xxh3::new();
+                hasher.update(data);
+                Hash::from_algorithm_digest(algorithm, hasher.digest128().to_be_bytes())
+            }
+        }
+        .expect("hash output length matches algorithm");
+
+        Self::from_hash(hash)
+    }
+
+    /// Generate an integrity value with multiple algorithms.
+    pub fn digest_many<B, I>(data: B, algorithms: I) -> Result<Self, Error>
+    where
+        B: AsRef<[u8]>,
+        I: IntoIterator<Item = Algorithm>,
+    {
+        let data = data.as_ref();
+        let mut builder = IntegrityBuilder::new();
+        for algorithm in algorithms {
+            builder = builder.algorithm(algorithm);
+        }
+        builder.update(data);
+        builder.finish()
+    }
+
+    /// Create an integrity value from one raw digest.
+    pub fn from_digest<D>(algorithm: Algorithm, digest: D) -> Result<Self, Error>
+    where
+        D: AsRef<[u8]>,
+    {
+        Self::from_hashes(vec![Hash::from_algorithm_digest(algorithm, digest)?])
+    }
+
+    /// Create an integrity value from one standard base64 digest.
+    pub fn from_digest_base64<D>(algorithm: Algorithm, digest: D) -> Result<Self, Error>
+    where
+        D: AsRef<[u8]>,
+    {
+        Self::from_hashes(vec![Hash::from_algorithm_digest_base64(algorithm, digest)?])
+    }
+
+    /// Create an integrity value from one hex digest.
+    pub fn from_digest_hex<D>(algorithm: Algorithm, digest: D) -> Result<Self, Error>
+    where
+        D: AsRef<[u8]>,
+    {
+        let digest = hex::decode(digest).map_err(|e| Error::HexDecodeError(e.to_string()))?;
+        Self::from_digest(algorithm, digest)
+    }
+
+    /// Return all digests in strongest-algorithm-first order.
+    pub fn iter(&self) -> impl Iterator<Item = DigestRef<'_>> + '_ {
+        self.hashes()
             .iter()
-            .filter(|h| h.algorithm() == algo)
-            .find(|&h| {
-                other
-                    .hashes
-                    .iter()
-                    .filter(|i| i.algorithm() == algo)
-                    .any(|i| h == i)
-            })
-            .map(|h| h.algorithm())
+            .enumerate()
+            .map(|(index, hash)| DigestRef { index, hash })
+    }
+
+    /// Return the strongest algorithm group selected for verification.
+    pub fn selected(&self) -> impl Iterator<Item = DigestRef<'_>> + '_ {
+        self.selected_hashes()
+            .iter()
+            .enumerate()
+            .map(|(index, hash)| DigestRef { index, hash })
+    }
+
+    /// Return the first digest.
+    pub fn first(&self) -> DigestRef<'_> {
+        self.iter().next().expect("integrity is never empty")
+    }
+
+    /// Return the number of digests.
+    pub fn len(&self) -> usize {
+        self.hashes().len()
+    }
+
+    /// Return whether this integrity value is empty.
+    pub const fn is_empty(&self) -> bool {
+        false
+    }
+
+    /// Return the strongest available algorithm in this integrity value.
+    pub fn strongest_algorithm(&self) -> Algorithm {
+        self.hashes()[0].algorithm()
+    }
+
+    /// Join together two `Integrity` instances.
+    pub fn concat(&self, other: &Integrity) -> Self {
+        if self == other {
+            return self.clone();
+        }
+
+        if let (Repr::One(left), Repr::One(right)) = (&self.repr, &other.repr) {
+            let mut hashes = vec![left.clone(), right.clone()];
+            hashes.sort();
+            return Self::from_ordered_hashes(hashes).expect("two hashes are non-empty");
+        }
+
+        let hashes = self
+            .hashes()
+            .iter()
+            .chain(other.hashes())
+            .cloned()
+            .collect();
+        Self::from_hashes(hashes).expect("source integrities are never empty")
+    }
+
+    /// Verify bytes against this integrity value.
+    pub fn verify<B: AsRef<[u8]>>(&self, data: B) -> Result<Verification, Error> {
+        self.checker().chain(data).finish()
+    }
+
+    /// Create a streaming verifier for this integrity value.
+    pub fn checker(&self) -> Checker<'_> {
+        Checker::new(self)
+    }
+
+    /// Compare two integrity values using `other` to choose the strongest
+    /// algorithm group.
+    pub fn matches(&self, other: &Self) -> Option<Algorithm> {
+        let algorithm = other.strongest_algorithm();
+        let selected = other.selected_hashes();
+        let matches = self
+            .hashes()
+            .iter()
+            .filter(|digest| digest.algorithm() == algorithm)
+            .any(|digest| selected.iter().any(|other_digest| digest == other_digest));
+
+        matches.then_some(algorithm)
+    }
+
+    fn hashes(&self) -> &[Hash] {
+        match &self.repr {
+            Repr::One(hash) => std::slice::from_ref(hash),
+            Repr::Many(hashes) => hashes,
+        }
+    }
+
+    fn selected_hashes(&self) -> &[Hash] {
+        let hashes = self.hashes();
+        let algorithm = hashes[0].algorithm();
+        let end = hashes
+            .iter()
+            .take_while(|hash| hash.algorithm() == algorithm)
+            .count();
+        &hashes[..end]
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Algorithm, Hash, Integrity, IntegrityOpts};
+    use super::{Algorithm, Integrity};
     use crate::Error;
 
     #[test]
     fn parse() {
         let sri: Integrity = "sha1-Kq5sNclPz7QV2+lfQIuc6R7oRu0=".parse().unwrap();
-        assert_eq!(
-            sri.hashes.first().unwrap(),
-            &Hash::from_algorithm_digest_base64(Algorithm::Sha1, "Kq5sNclPz7QV2+lfQIuc6R7oRu0=")
-                .unwrap()
-        )
+        let digest = sri.first();
+        assert_eq!(digest.algorithm(), Algorithm::Sha1);
+        assert_eq!(digest.to_base64(), "Kq5sNclPz7QV2+lfQIuc6R7oRu0=");
     }
 
     #[test]
@@ -285,9 +406,9 @@ mod tests {
     }
 
     #[test]
-    fn from_hex_rejects_wrong_digest_length() {
+    fn from_digest_hex_rejects_wrong_digest_length() {
         assert!(matches!(
-            Integrity::from_hex("deadbeef", Algorithm::Sha256),
+            Integrity::from_digest_hex(Algorithm::Sha256, "deadbeef"),
             Err(Error::InvalidDigestLength {
                 algorithm: Algorithm::Sha256,
                 expected: 32,
@@ -297,39 +418,42 @@ mod tests {
     }
 
     #[test]
-    fn from_hex() {
-        let expected_integrity = Integrity::from(b"hello world");
+    fn from_digest_hex() {
+        let expected_integrity = Integrity::digest(b"hello world", Algorithm::Sha256);
         let hex = String::from("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
         assert_eq!(
-            Integrity::from_hex(hex, Algorithm::Sha256).unwrap(),
+            Integrity::from_digest_hex(Algorithm::Sha256, hex).unwrap(),
             expected_integrity
         );
     }
 
     #[test]
-    fn to_hex() {
-        let sri = Integrity::from(b"hello world");
+    fn digest_ref_to_hex() {
+        let sri = Integrity::digest(b"hello world", Algorithm::Sha256);
+        let digest = sri.first();
+        assert_eq!(digest.algorithm(), Algorithm::Sha256);
         assert_eq!(
-            sri.to_hex(),
-            (
-                Algorithm::Sha256,
-                String::from("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9")
-            )
+            digest.to_hex(),
+            String::from("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9")
         )
     }
 
     #[test]
     fn matches() {
-        let sri1 = IntegrityOpts::new()
-            .algorithm(Algorithm::Sha512)
-            .algorithm(Algorithm::Sha256)
-            .chain(b"hello world")
-            .result();
-        let sri2 = Integrity::from(b"hello world");
-        let sri3 = Integrity::from(b"goodbye world");
+        let sri1 =
+            Integrity::digest_many(b"hello world", [Algorithm::Sha512, Algorithm::Sha256]).unwrap();
+        let sri2 = Integrity::digest(b"hello world", Algorithm::Sha256);
+        let sri3 = Integrity::digest(b"goodbye world", Algorithm::Sha256);
         assert_eq!(sri1.matches(&sri2), Some(Algorithm::Sha256));
         assert_eq!(sri1.matches(&sri3), None);
         assert_eq!(sri2.matches(&sri1), None)
+    }
+
+    #[test]
+    fn concat_deduplicates() {
+        let sri = Integrity::digest(b"hello world", Algorithm::Sha256);
+        let concat = sri.concat(&sri);
+        assert_eq!(concat.len(), 1);
     }
 
     #[cfg(feature = "serde")]

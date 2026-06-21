@@ -2,7 +2,7 @@ use std::hint::black_box;
 use std::sync::LazyLock;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use ssri2::{Algorithm, Integrity, IntegrityChecker, IntegrityOpts};
+use ssri2::{Algorithm, Integrity, IntegrityBuilder};
 
 const TEXT_SMALL: &[u8] = b"hello world";
 const TEXT_MISMATCH: &[u8] = b"goodbye world";
@@ -14,29 +14,35 @@ const INVALID_DIGEST_LENGTH: &str = "sha256-pc6cFV7Qk5dhRkbJcX/HzZSxAj17drYY1Ank
 static TEXT_4K: LazyLock<Vec<u8>> = LazyLock::new(|| vec![b'a'; 4 * 1024]);
 static TEXT_1MIB: LazyLock<Vec<u8>> = LazyLock::new(|| vec![b'z'; 1024 * 1024]);
 
-static SRI_SMALL: LazyLock<Integrity> = LazyLock::new(|| Integrity::from(TEXT_SMALL));
-static SRI_4K: LazyLock<Integrity> = LazyLock::new(|| Integrity::from(TEXT_4K.as_slice()));
-static SRI_1MIB: LazyLock<Integrity> = LazyLock::new(|| Integrity::from(TEXT_1MIB.as_slice()));
+static SRI_SMALL: LazyLock<Integrity> =
+    LazyLock::new(|| Integrity::digest(TEXT_SMALL, Algorithm::Sha256));
+static SRI_4K: LazyLock<Integrity> =
+    LazyLock::new(|| Integrity::digest(TEXT_4K.as_slice(), Algorithm::Sha256));
+static SRI_1MIB: LazyLock<Integrity> =
+    LazyLock::new(|| Integrity::digest(TEXT_1MIB.as_slice(), Algorithm::Sha256));
 
 static SINGLE_SHA256: LazyLock<String> = LazyLock::new(|| SRI_SMALL.to_string());
 static MULTI_HASH: LazyLock<String> = LazyLock::new(|| {
-    IntegrityOpts::new()
+    IntegrityBuilder::new()
         .algorithm(Algorithm::Sha512)
         .algorithm(Algorithm::Sha384)
         .algorithm(Algorithm::Sha256)
         .chain(TEXT_SMALL)
-        .result()
+        .finish()
+        .unwrap()
         .to_string()
 });
 static SPACED_HASH: LazyLock<String> =
     LazyLock::new(|| format!(" \n  {} \t", SINGLE_SHA256.as_str()));
-static CONCAT_RIGHT: LazyLock<Integrity> = LazyLock::new(|| Integrity::from(TEXT_MISMATCH));
+static CONCAT_RIGHT: LazyLock<Integrity> =
+    LazyLock::new(|| Integrity::digest(TEXT_MISMATCH, Algorithm::Sha256));
 static MATCH_MULTI: LazyLock<Integrity> = LazyLock::new(|| {
-    IntegrityOpts::new()
+    IntegrityBuilder::new()
         .algorithm(Algorithm::Sha512)
         .algorithm(Algorithm::Sha256)
         .chain(TEXT_SMALL)
-        .result()
+        .finish()
+        .unwrap()
 });
 
 fn bench_parse(c: &mut Criterion) {
@@ -82,43 +88,46 @@ fn bench_generate(c: &mut Criterion) {
 
     group.throughput(Throughput::Bytes(TEXT_SMALL.len() as u64));
     group.bench_function(BenchmarkId::new("sha256", "small"), |b| {
-        b.iter(|| Integrity::from(black_box(TEXT_SMALL)));
+        b.iter(|| Integrity::digest(black_box(TEXT_SMALL), Algorithm::Sha256));
     });
     group.bench_function(BenchmarkId::new("sha256_sha512", "small"), |b| {
         b.iter(|| {
-            IntegrityOpts::new()
+            IntegrityBuilder::new()
                 .algorithm(Algorithm::Sha256)
                 .algorithm(Algorithm::Sha512)
                 .chain(black_box(TEXT_SMALL))
-                .result()
+                .finish()
+                .unwrap()
         });
     });
 
     group.throughput(Throughput::Bytes(TEXT_4K.len() as u64));
     group.bench_function(BenchmarkId::new("sha256", "4KiB"), |b| {
-        b.iter(|| Integrity::from(black_box(TEXT_4K.as_slice())));
+        b.iter(|| Integrity::digest(black_box(TEXT_4K.as_slice()), Algorithm::Sha256));
     });
     group.bench_function(BenchmarkId::new("sha256_sha512", "4KiB"), |b| {
         b.iter(|| {
-            IntegrityOpts::new()
+            IntegrityBuilder::new()
                 .algorithm(Algorithm::Sha256)
                 .algorithm(Algorithm::Sha512)
                 .chain(black_box(TEXT_4K.as_slice()))
-                .result()
+                .finish()
+                .unwrap()
         });
     });
 
     group.throughput(Throughput::Bytes(TEXT_1MIB.len() as u64));
     group.bench_function(BenchmarkId::new("sha256", "1MiB"), |b| {
-        b.iter(|| Integrity::from(black_box(TEXT_1MIB.as_slice())));
+        b.iter(|| Integrity::digest(black_box(TEXT_1MIB.as_slice()), Algorithm::Sha256));
     });
     group.bench_function(BenchmarkId::new("sha256_sha512", "1MiB"), |b| {
         b.iter(|| {
-            IntegrityOpts::new()
+            IntegrityBuilder::new()
                 .algorithm(Algorithm::Sha256)
                 .algorithm(Algorithm::Sha512)
                 .chain(black_box(TEXT_1MIB.as_slice()))
-                .result()
+                .finish()
+                .unwrap()
         });
     });
 
@@ -130,32 +139,32 @@ fn bench_verify(c: &mut Criterion) {
 
     group.throughput(Throughput::Bytes(TEXT_SMALL.len() as u64));
     group.bench_function(BenchmarkId::new("success", "small"), |b| {
-        b.iter(|| SRI_SMALL.check(black_box(TEXT_SMALL)).unwrap());
+        b.iter(|| SRI_SMALL.verify(black_box(TEXT_SMALL)).unwrap());
     });
     group.bench_function(BenchmarkId::new("mismatch", "small"), |b| {
-        b.iter(|| SRI_SMALL.check(black_box(TEXT_MISMATCH)).unwrap_err());
+        b.iter(|| SRI_SMALL.verify(black_box(TEXT_MISMATCH)).unwrap_err());
     });
     group.bench_function(BenchmarkId::new("multi_hash_success", "small"), |b| {
-        b.iter(|| MATCH_MULTI.check(black_box(TEXT_SMALL)).unwrap());
+        b.iter(|| MATCH_MULTI.verify(black_box(TEXT_SMALL)).unwrap());
     });
 
     group.throughput(Throughput::Bytes(TEXT_4K.len() as u64));
     group.bench_function(BenchmarkId::new("success", "4KiB"), |b| {
-        b.iter(|| SRI_4K.check(black_box(TEXT_4K.as_slice())).unwrap());
+        b.iter(|| SRI_4K.verify(black_box(TEXT_4K.as_slice())).unwrap());
     });
     group.bench_function(BenchmarkId::new("streaming_success", "4KiB"), |b| {
         b.iter(|| {
-            let mut checker = IntegrityChecker::new(SRI_4K.clone());
+            let mut checker = SRI_4K.checker();
             for chunk in TEXT_4K.chunks(512) {
-                checker.input(black_box(chunk));
+                checker.update(black_box(chunk));
             }
-            checker.result().unwrap()
+            checker.finish().unwrap()
         });
     });
 
     group.throughput(Throughput::Bytes(TEXT_1MIB.len() as u64));
     group.bench_function(BenchmarkId::new("success", "1MiB"), |b| {
-        b.iter(|| SRI_1MIB.check(black_box(TEXT_1MIB.as_slice())).unwrap());
+        b.iter(|| SRI_1MIB.verify(black_box(TEXT_1MIB.as_slice())).unwrap());
     });
 
     group.finish();
@@ -164,11 +173,13 @@ fn bench_verify(c: &mut Criterion) {
 fn bench_conversions(c: &mut Criterion) {
     let mut group = c.benchmark_group("conversions");
 
-    group.bench_function("from_hex_sha256", |b| {
-        b.iter(|| Integrity::from_hex(black_box(HEX_SHA256_SMALL), Algorithm::Sha256).unwrap());
+    group.bench_function("from_digest_hex_sha256", |b| {
+        b.iter(|| {
+            Integrity::from_digest_hex(Algorithm::Sha256, black_box(HEX_SHA256_SMALL)).unwrap()
+        });
     });
     group.bench_function("to_hex_sha256", |b| {
-        b.iter(|| black_box(SRI_SMALL.to_hex()));
+        b.iter(|| black_box(SRI_SMALL.first().to_hex()));
     });
     group.bench_function("display_single_sha256", |b| {
         b.iter(|| black_box(SRI_SMALL.to_string()));
@@ -184,10 +195,10 @@ fn bench_concat_matches(c: &mut Criterion) {
     let mut group = c.benchmark_group("concat_matches");
 
     group.bench_function("concat_distinct_sha256", |b| {
-        b.iter(|| SRI_SMALL.clone().concat(black_box(CONCAT_RIGHT.clone())));
+        b.iter(|| SRI_SMALL.concat(black_box(&CONCAT_RIGHT)));
     });
     group.bench_function("concat_duplicate_sha256", |b| {
-        b.iter(|| SRI_SMALL.clone().concat(black_box(SRI_SMALL.clone())));
+        b.iter(|| SRI_SMALL.concat(black_box(&SRI_SMALL)));
     });
     group.bench_function("matches_multi_hash", |b| {
         b.iter(|| black_box(MATCH_MULTI.matches(&SRI_SMALL)));

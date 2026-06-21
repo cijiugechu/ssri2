@@ -28,11 +28,22 @@ pub enum Algorithm {
 
 impl fmt::Display for Algorithm {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", format!("{:?}", self).to_lowercase())
+        f.write_str(self.as_str())
     }
 }
 
 impl Algorithm {
+    /// Returns the canonical lowercase SRI algorithm name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Algorithm::Sha512 => "sha512",
+            Algorithm::Sha384 => "sha384",
+            Algorithm::Sha256 => "sha256",
+            Algorithm::Sha1 => "sha1",
+            Algorithm::Xxh3 => "xxh3",
+        }
+    }
+
     /// Returns the digest length, in bytes, for this algorithm.
     pub const fn digest_len(self) -> usize {
         match self {

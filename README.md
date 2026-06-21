@@ -24,11 +24,9 @@ assert_eq!(parsed.to_string(), source)
 Generating a new hash from file data:
 
 ```rust
-use ssri2::Integrity;
+use ssri2::{Algorithm, Integrity};
 
-// By default, generates Integrity as Sha256.
-// Use IntegrityOpts to pick the algorithm yourself.
-let sri = Integrity::from(b"hello world");
+let sri = Integrity::digest(b"hello world", Algorithm::Sha256);
 assert_eq!(sri.to_string(), "sha256-uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek=");
 ```
 
@@ -37,13 +35,12 @@ Verifying data against an SRI:
 ```rust
 use ssri2::{Integrity, Algorithm};
 
-let sri = Integrity::from(b"hello world");
-assert_eq!(sri.check(b"hello world").unwrap(), Algorithm::Sha256);
+let sri = Integrity::digest(b"hello world", Algorithm::Sha256);
+assert_eq!(sri.verify(b"hello world").unwrap().algorithm, Algorithm::Sha256);
 ```
 
-You can also use [`IntegrityOpts`](struct.IntegrityOpts.html) and [`IntegrityChecker`](struct.IntegrityChecker.html) to generate
-and check subresource integrity, respectively. These allow things like multiple algorithms, and
-incremental/streamed data input.
+Use [`IntegrityBuilder`](struct.IntegrityBuilder.html) and [`Checker`](struct.Checker.html)
+for multiple algorithms and incremental/streamed data input.
 
 ## Documentation
 

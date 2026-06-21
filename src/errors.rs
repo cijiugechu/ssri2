@@ -1,7 +1,6 @@
 use thiserror::Error;
 
 use crate::Algorithm;
-use crate::Integrity;
 
 /// Integrity-related error values.
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
@@ -28,9 +27,12 @@ pub enum Error {
         expected: usize,
         actual: usize,
     },
-    /// Error matching two Integrity values.
-    #[error("Integrity check failed.\n\tWanted: {0}\n\tActual: {1}")]
-    IntegrityCheckError(Integrity, Integrity),
+    /// Error caused by finalizing a builder without configured algorithms.
+    #[error("Cannot build an integrity value without configured algorithms")]
+    NoAlgorithms,
+    /// Error verifying bytes against an Integrity value.
+    #[error("Integrity check failed for algorithm: {algorithm}")]
+    IntegrityMismatch { algorithm: Algorithm },
     /// Error Decoding Hex Data
     #[error("Failed decode hexadecimal data, reason: {0}")]
     HexDecodeError(String),

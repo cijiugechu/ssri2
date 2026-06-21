@@ -1,10 +1,12 @@
 use std::cmp::Ordering;
 use std::fmt;
 
-use base64_simd::STANDARD as BASE64_STANDARD;
+use base64_simd::{AsOut, STANDARD as BASE64_STANDARD};
 
 use crate::algorithm::Algorithm;
 use crate::errors::Error;
+
+pub(crate) const MAX_BASE64_DIGEST_LEN: usize = 88;
 
 /**
 Represents a single algorithm/digest pair.
@@ -13,7 +15,7 @@ This is mostly internal, although users might interact with it directly on
 occasion.
 */
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Hash {
+pub(crate) struct Hash {
     digest: DigestBytes,
 }
 
@@ -50,7 +52,7 @@ impl DigestBytes {
 
 impl Hash {
     /// Creates a hash from an algorithm and raw digest bytes.
-    pub fn from_algorithm_digest<D>(algorithm: Algorithm, digest: D) -> Result<Self, Error>
+    pub(crate) fn from_algorithm_digest<D>(algorithm: Algorithm, digest: D) -> Result<Self, Error>
     where
         D: AsRef<[u8]>,
     {
@@ -78,7 +80,10 @@ impl Hash {
     }
 
     /// Creates a hash from an algorithm and a standard base64-encoded digest.
-    pub fn from_algorithm_digest_base64<D>(algorithm: Algorithm, digest: D) -> Result<Self, Error>
+    pub(crate) fn from_algorithm_digest_base64<D>(
+        algorithm: Algorithm,
+        digest: D,
+    ) -> Result<Self, Error>
     where
         D: AsRef<[u8]>,
     {
@@ -89,23 +94,25 @@ impl Hash {
     }
 
     /// Returns the algorithm for this hash.
-    pub const fn algorithm(&self) -> Algorithm {
+    pub(crate) const fn algorithm(&self) -> Algorithm {
         self.digest.algorithm()
     }
 
     /// Returns the raw digest bytes.
-    pub fn digest_bytes(&self) -> &[u8] {
+    pub(crate) fn digest_bytes(&self) -> &[u8] {
         self.digest.as_bytes()
     }
 
-    /// Returns the raw digest bytes.
-    pub fn digest(&self) -> &[u8] {
-        self.digest_bytes()
+    /// Returns the digest encoded as canonical padded standard base64.
+    pub(crate) fn digest_base64(&self) -> String {
+        BASE64_STANDARD.encode_to_string(self.digest_bytes())
     }
 
-    /// Returns the digest encoded as canonical padded standard base64.
-    pub fn digest_base64(&self) -> String {
-        BASE64_STANDARD.encode_to_string(self.digest_bytes())
+    pub(crate) fn digest_base64_into<'a>(
+        &self,
+        dst: &'a mut [u8; MAX_BASE64_DIGEST_LEN],
+    ) -> &'a str {
+        BASE64_STANDARD.encode_as_str(self.digest_bytes(), dst.as_mut_slice().as_out())
     }
 }
 
@@ -122,7 +129,9 @@ impl Ord for Hash {
 }
 impl fmt::Display for Hash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}-{}", self.algorithm(), self.digest_base64())
+        let mut digest = [0; MAX_BASE64_DIGEST_LEN];
+        let digest = self.digest_base64_into(&mut digest);
+        write!(f, "{}-{digest}", self.algorithm())
     }
 }
 
@@ -173,11 +182,10 @@ mod tests {
     }
 
     #[test]
-    fn constructors_expose_migration_accessors() {
+    fn constructors_expose_digest_accessors() {
         let hash = Hash::from_algorithm_digest(Algorithm::Sha1, [0; 20]).unwrap();
         assert_eq!(hash.algorithm(), Algorithm::Sha1);
         assert_eq!(hash.digest_bytes(), &[0; 20]);
-        assert_eq!(hash.digest(), &[0; 20]);
         assert_eq!(hash.digest_base64(), "AAAAAAAAAAAAAAAAAAAAAAAAAAA=");
     }
 
