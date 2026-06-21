@@ -32,6 +32,19 @@ impl fmt::Display for Algorithm {
     }
 }
 
+impl Algorithm {
+    /// Returns the digest length, in bytes, for this algorithm.
+    pub const fn digest_len(self) -> usize {
+        match self {
+            Algorithm::Sha512 => 64,
+            Algorithm::Sha384 => 48,
+            Algorithm::Sha256 => 32,
+            Algorithm::Sha1 => 20,
+            Algorithm::Xxh3 => 16,
+        }
+    }
+}
+
 impl std::str::FromStr for Algorithm {
     type Err = Error;
 
@@ -42,7 +55,7 @@ impl std::str::FromStr for Algorithm {
             "sha384" => Ok(Algorithm::Sha384),
             "sha512" => Ok(Algorithm::Sha512),
             "xxh3" => Ok(Algorithm::Xxh3),
-            _ => Err(Error::ParseIntegrityError(s.into())),
+            _ => Err(Error::UnknownAlgorithm(s.into())),
         }
     }
 }
@@ -65,5 +78,14 @@ mod tests {
         let mut arr = [Sha1, Sha256, Sha384, Sha512, Xxh3];
         arr.sort_unstable();
         assert_eq!(arr, [Sha512, Sha384, Sha256, Sha1, Xxh3])
+    }
+
+    #[test]
+    fn digest_lengths() {
+        assert_eq!(Sha1.digest_len(), 20);
+        assert_eq!(Sha256.digest_len(), 32);
+        assert_eq!(Sha384.digest_len(), 48);
+        assert_eq!(Sha512.digest_len(), 64);
+        assert_eq!(Xxh3.digest_len(), 16);
     }
 }

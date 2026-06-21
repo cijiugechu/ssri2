@@ -8,6 +8,8 @@ const TEXT_SMALL: &[u8] = b"hello world";
 const TEXT_MISMATCH: &[u8] = b"goodbye world";
 const HEX_SHA256_SMALL: &str = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
 const UNKNOWN_ALGORITHM: &str = "sha999-uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek=";
+const INVALID_BASE64: &str = "sha256-not-valid!!!";
+const INVALID_DIGEST_LENGTH: &str = "sha256-pc6cFV7Qk5dhRkbJcX/HzZSxAj17drYY1Ank";
 
 static TEXT_4K: LazyLock<Vec<u8>> = LazyLock::new(|| vec![b'a'; 4 * 1024]);
 static TEXT_1MIB: LazyLock<Vec<u8>> = LazyLock::new(|| vec![b'z'; 1024 * 1024]);
@@ -53,6 +55,20 @@ fn bench_parse(c: &mut Criterion) {
     group.bench_with_input(
         BenchmarkId::from_parameter("unknown_algorithm"),
         UNKNOWN_ALGORITHM,
+        |b, input| {
+            b.iter(|| black_box(input).parse::<Integrity>().unwrap_err());
+        },
+    );
+    group.bench_with_input(
+        BenchmarkId::from_parameter("invalid_base64"),
+        INVALID_BASE64,
+        |b, input| {
+            b.iter(|| black_box(input).parse::<Integrity>().unwrap_err());
+        },
+    );
+    group.bench_with_input(
+        BenchmarkId::from_parameter("invalid_digest_length"),
+        INVALID_DIGEST_LENGTH,
         |b, input| {
             b.iter(|| black_box(input).parse::<Integrity>().unwrap_err());
         },

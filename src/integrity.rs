@@ -6,8 +6,6 @@ use crate::errors::Error;
 use crate::hash::Hash;
 use crate::opts::IntegrityOpts;
 
-use base64_simd::STANDARD as BASE64_STANDARD;
-
 #[cfg(feature = "serde")]
 use serde::de::{self, Deserialize, Deserializer, Visitor};
 #[cfg(feature = "serde")]
@@ -57,14 +55,17 @@ impl std::str::FromStr for Integrity {
     /// # Example
     /// ```
     /// use ssri2::Integrity;
-    /// let sri: Integrity = "sha256-deadbeef".parse().unwrap();
-    /// assert_eq!(sri.to_string(), String::from("sha256-deadbeef"));
+    /// let sri: Integrity = "sha256-uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek=".parse().unwrap();
+    /// assert_eq!(sri.to_string(), String::from("sha256-uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek="));
     /// ```
     fn from_str(s: &str) -> Result<Integrity, Self::Err> {
-        let mut hashes = String::from(s)
+        let mut hashes = s
             .split_whitespace()
             .map(|x| x.parse())
             .collect::<Result<Vec<Hash>, Self::Err>>()?;
+        if hashes.is_empty() {
+            return Err(Error::EmptyIntegrity);
+        }
         hashes.sort();
         Ok(Integrity { hashes })
     }
@@ -114,12 +115,12 @@ impl Integrity {
     /// ```
     /// use ssri2::{Integrity, Algorithm};
     ///
-    /// let sri: Integrity = "sha1-deadbeef sha256-badc0ffee".parse().unwrap();
+    /// let sri: Integrity = "sha1-Kq5sNclPz7QV2+lfQIuc6R7oRu0= sha256-uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek=".parse().unwrap();
     /// let algorithm = sri.pick_algorithm();
     /// assert_eq!(algorithm, Algorithm::Sha256);
     /// ```
     pub fn pick_algorithm(&self) -> Algorithm {
-        self.hashes[0].algorithm
+        self.hashes[0].algorithm()
     }
 
     /// Create a new `Integrity` based on `data`. Use
@@ -150,9 +151,8 @@ impl Integrity {
     ///```
     pub fn from_hex<B: AsRef<[u8]>>(hex: B, algorithm: Algorithm) -> Result<Integrity, Error> {
         let b16 = hex::decode(hex).map_err(|e| Error::HexDecodeError(e.to_string()))?;
-        let digest = BASE64_STANDARD.encode_to_string(b16);
         Ok(Integrity {
-            hashes: vec![Hash { algorithm, digest }],
+            hashes: vec![Hash::from_algorithm_digest(algorithm, b16)?],
         })
     }
 
@@ -162,10 +162,10 @@ impl Integrity {
     /// # Example
     /// ```
     /// use ssri2::Integrity;
-    /// let sri1: Integrity = "sha256-deadbeef".parse().unwrap();
-    /// let sri2: Integrity = "sha256-badc0ffee".parse().unwrap();
+    /// let sri1 = Integrity::from(b"hello");
+    /// let sri2 = Integrity::from(b"world");
     /// let sri3 = sri1.concat(sri2);
-    /// assert_eq!(sri3.to_string(), "sha256-deadbeef sha256-badc0ffee".to_owned());
+    /// assert_eq!(sri3.to_string(), "sha256-LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ= sha256-SG6kYiTRu0+2gPNPfJrZao8k7Ii+c+qOWmxlJg6cuKc=".to_owned());
     /// ```
     pub fn concat(&self, other: Integrity) -> Self {
         let mut hashes = [self.hashes.clone(), other.hashes].concat();
@@ -205,10 +205,7 @@ impl Integrity {
     /// ```
     pub fn to_hex(&self) -> (Algorithm, String) {
         let hash = self.hashes.first().unwrap();
-        (
-            hash.algorithm,
-            hex::encode(BASE64_STANDARD.decode_to_vec(&hash.digest).unwrap()),
-        )
+        (hash.algorithm(), hex::encode(hash.digest_bytes()))
     }
 
     /// Compares `self` against a given SRI to see if there's a match. The
@@ -227,32 +224,76 @@ impl Integrity {
         let algo = other.pick_algorithm();
         self.hashes
             .iter()
-            .filter(|h| h.algorithm == algo)
+            .filter(|h| h.algorithm() == algo)
             .find(|&h| {
                 other
                     .hashes
                     .iter()
-                    .filter(|i| i.algorithm == algo)
+                    .filter(|i| i.algorithm() == algo)
                     .any(|i| h == i)
             })
-            .map(|h| h.algorithm)
+            .map(|h| h.algorithm())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{Algorithm, Hash, Integrity, IntegrityOpts};
+    use crate::Error;
 
     #[test]
     fn parse() {
-        let sri: Integrity = "sha1-deadbeef=".parse().unwrap();
+        let sri: Integrity = "sha1-Kq5sNclPz7QV2+lfQIuc6R7oRu0=".parse().unwrap();
         assert_eq!(
             sri.hashes.first().unwrap(),
-            &Hash {
-                algorithm: Algorithm::Sha1,
-                digest: String::from("deadbeef=")
-            }
+            &Hash::from_algorithm_digest_base64(Algorithm::Sha1, "Kq5sNclPz7QV2+lfQIuc6R7oRu0=")
+                .unwrap()
         )
+    }
+
+    #[test]
+    fn parse_empty_integrity_fails() {
+        assert_eq!("  \n\t ".parse::<Integrity>(), Err(Error::EmptyIntegrity));
+    }
+
+    #[test]
+    fn parse_rejects_issue_5_short_sha256_digest() {
+        assert!(matches!(
+            "sha256-pc6cFV7Qk5dhRkbJcX/HzZSxAj17drYY1Ank".parse::<Integrity>(),
+            Err(Error::InvalidDigestLength {
+                algorithm: Algorithm::Sha256,
+                expected: 32,
+                actual: 27,
+            })
+        ));
+    }
+
+    #[test]
+    fn parse_rejects_invalid_base64_digest() {
+        assert!(matches!(
+            "sha256-not-valid!!!".parse::<Integrity>(),
+            Err(Error::InvalidBase64Digest(_))
+        ));
+    }
+
+    #[test]
+    fn parse_rejects_extra_dash_segment() {
+        assert!(matches!(
+            "sha256-uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek=-extra".parse::<Integrity>(),
+            Err(Error::InvalidBase64Digest(_))
+        ));
+    }
+
+    #[test]
+    fn from_hex_rejects_wrong_digest_length() {
+        assert!(matches!(
+            Integrity::from_hex("deadbeef", Algorithm::Sha256),
+            Err(Error::InvalidDigestLength {
+                algorithm: Algorithm::Sha256,
+                expected: 32,
+                actual: 4,
+            })
+        ));
     }
 
     #[test]
@@ -291,6 +332,7 @@ mod tests {
         assert_eq!(sri2.matches(&sri1), None)
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn de_json() {
         use serde_derive::Deserialize;
@@ -300,17 +342,33 @@ mod tests {
             integrity: Integrity,
         }
 
-        let json = r#"{ "integrity": "sha1-deadbeef" }"#;
+        let json = r#"{ "integrity": "sha1-Kq5sNclPz7QV2+lfQIuc6R7oRu0=" }"#;
         let de: Thing = serde_json::from_str(json).unwrap();
 
         assert_eq!(
             de,
             Thing {
-                integrity: "sha1-deadbeef".parse().unwrap()
+                integrity: "sha1-Kq5sNclPz7QV2+lfQIuc6R7oRu0=".parse().unwrap()
             }
         );
     }
 
+    #[cfg(feature = "serde")]
+    #[test]
+    fn de_json_rejects_invalid_digest_length() {
+        use serde_derive::Deserialize;
+
+        #[derive(Debug, PartialEq, Deserialize)]
+        struct Thing {
+            integrity: Integrity,
+        }
+
+        let json = r#"{ "integrity": "sha256-pc6cFV7Qk5dhRkbJcX/HzZSxAj17drYY1Ank" }"#;
+
+        assert!(serde_json::from_str::<Thing>(json).is_err());
+    }
+
+    #[cfg(feature = "serde")]
     #[test]
     fn ser_json() {
         use serde_derive::Serialize;
@@ -321,10 +379,10 @@ mod tests {
         }
 
         let thing = Thing {
-            integrity: "sha1-deadbeef".parse().unwrap(),
+            integrity: "sha1-Kq5sNclPz7QV2+lfQIuc6R7oRu0=".parse().unwrap(),
         };
         let ser = serde_json::to_string(&thing).unwrap();
-        let json = r#"{"integrity":"sha1-deadbeef"}"#;
+        let json = r#"{"integrity":"sha1-Kq5sNclPz7QV2+lfQIuc6R7oRu0="}"#;
 
         assert_eq!(ser, json);
     }

@@ -4,7 +4,6 @@ use crate::algorithm::Algorithm;
 use crate::hash::Hash;
 use crate::integrity::Integrity;
 
-use base64_simd::STANDARD as BASE64_STANDARD;
 use digest::Digest;
 
 #[allow(clippy::enum_variant_names)]
@@ -108,32 +107,22 @@ impl IntegrityOpts {
         let mut hashes = self
             .hashers
             .into_iter()
-            .map(|h| {
-                let (algorithm, data) = match h {
-                    Hasher::Sha1(h) => (
-                        Algorithm::Sha1,
-                        BASE64_STANDARD.encode_to_string(h.finalize()),
-                    ),
-                    Hasher::Sha256(h) => (
-                        Algorithm::Sha256,
-                        BASE64_STANDARD.encode_to_string(h.finalize()),
-                    ),
-                    Hasher::Sha384(h) => (
-                        Algorithm::Sha384,
-                        BASE64_STANDARD.encode_to_string(h.finalize()),
-                    ),
-                    Hasher::Sha512(h) => (
-                        Algorithm::Sha512,
-                        BASE64_STANDARD.encode_to_string(h.finalize()),
-                    ),
-                    Hasher::Xxh3(h) => (
-                        Algorithm::Xxh3,
-                        BASE64_STANDARD.encode_to_string(h.digest128().to_be_bytes()),
-                    ),
-                };
-                Hash {
-                    algorithm,
-                    digest: data,
+            .map(|h| match h {
+                Hasher::Sha1(h) => {
+                    Hash::from_algorithm_digest(Algorithm::Sha1, h.finalize()).unwrap()
+                }
+                Hasher::Sha256(h) => {
+                    Hash::from_algorithm_digest(Algorithm::Sha256, h.finalize()).unwrap()
+                }
+                Hasher::Sha384(h) => {
+                    Hash::from_algorithm_digest(Algorithm::Sha384, h.finalize()).unwrap()
+                }
+                Hasher::Sha512(h) => {
+                    Hash::from_algorithm_digest(Algorithm::Sha512, h.finalize()).unwrap()
+                }
+                Hasher::Xxh3(h) => {
+                    Hash::from_algorithm_digest(Algorithm::Xxh3, h.digest128().to_be_bytes())
+                        .unwrap()
                 }
             })
             .collect::<Vec<Hash>>();
