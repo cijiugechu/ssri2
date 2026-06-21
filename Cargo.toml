@@ -2,13 +2,13 @@
 name = "ssri2"
 version = "0.1.0"
 authors = ["cijiugechu <cijiugechu@gmail.com>", "Kat Marchán <kzm@zkat.tech>"]
-edition = "2021"
+edition = "2024"
 description = "Various utilities for handling Subresource Integrity."
 license = "Apache-2.0"
 repository = "https://github.com/cijiugechu/ssri2"
 homepage = "https://github.com/cijiugechu/ssri2"
 readme = "README.md"
-rust-version = "1.75.0"
+rust-version = "1.85.0"
 
 [dependencies]
 base64 = "0.21.7"
@@ -24,7 +24,7 @@ xxhash-rust = { version = "0.8.10", features = ["xxh3"] }
 default = ["serde"]
 
 [dev-dependencies]
-criterion = {  version = "0.5.1", features = ["html_reports"] }
+criterion = { version = "0.8.2", features = ["html_reports"] }
 serde_derive = "1.0.152"
 serde_json = "1.0.93"
 

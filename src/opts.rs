@@ -4,8 +4,8 @@ use crate::algorithm::Algorithm;
 use crate::hash::Hash;
 use crate::integrity::Integrity;
 
-use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
 use digest::Digest;
 
 #[allow(clippy::enum_variant_names)]

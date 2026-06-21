@@ -1,7 +1,7 @@
+use crate::Error;
 use crate::algorithm::Algorithm;
 use crate::integrity::Integrity;
 use crate::opts::IntegrityOpts;
-use crate::Error;
 
 /**
 Check data against an [`Integrity`](struct.Integrity.html).
