@@ -11,22 +11,22 @@ readme = "README.md"
 rust-version = "1.85.0"
 
 [dependencies]
-base64 = "0.21.7"
-digest = "0.10.7"
+base64-simd = "0.8.0"
+digest = "0.11.3"
 hex = "0.4.3"
-serde = { version = "1.0.190", optional = true }
-sha-1 = "0.10.1"
-sha2 = "0.10.8"
-thiserror = "1.0.57"
-xxhash-rust = { version = "0.8.10", features = ["xxh3"] }
+serde = { version = "1.0.228", optional = true }
+sha1 = "0.11.0"
+sha2 = "0.11.0"
+thiserror = "2.0.18"
+xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
 
 [features]
 default = ["serde"]
 
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["html_reports"] }
-serde_derive = "1.0.152"
-serde_json = "1.0.93"
+serde_derive = "1.0.228"
+serde_json = "1.0.150"
 
 [[bench]]
 name = "integrity"

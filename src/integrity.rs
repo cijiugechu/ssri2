@@ -6,7 +6,7 @@ use crate::errors::Error;
 use crate::hash::Hash;
 use crate::opts::IntegrityOpts;
 
-use base64::Engine as _;
+use base64_simd::STANDARD as BASE64_STANDARD;
 
 #[cfg(feature = "serde")]
 use serde::de::{self, Deserialize, Deserializer, Visitor};
@@ -150,7 +150,7 @@ impl Integrity {
     ///```
     pub fn from_hex<B: AsRef<[u8]>>(hex: B, algorithm: Algorithm) -> Result<Integrity, Error> {
         let b16 = hex::decode(hex).map_err(|e| Error::HexDecodeError(e.to_string()))?;
-        let digest = base64::prelude::BASE64_STANDARD.encode(b16);
+        let digest = BASE64_STANDARD.encode_to_string(b16);
         Ok(Integrity {
             hashes: vec![Hash { algorithm, digest }],
         })
@@ -207,11 +207,7 @@ impl Integrity {
         let hash = self.hashes.first().unwrap();
         (
             hash.algorithm,
-            hex::encode(
-                base64::prelude::BASE64_STANDARD
-                    .decode(&hash.digest)
-                    .unwrap(),
-            ),
+            hex::encode(BASE64_STANDARD.decode_to_vec(&hash.digest).unwrap()),
         )
     }
 
